@@ -42,9 +42,17 @@ class PPOTrainer:
         self.log_interval = self.config.get('log_interval', 10)
         self.save_interval = self.config.get('save_interval', 100)
         self.eval_interval = self.config.get('eval_interval', 50)
+        self.print_interval = self.config.get('print_interval', 100)  # Print rewards every N epochs
         self.episode_count = 0
         self.total_steps = 0
         self.best_reward = float('-inf')
+        self.epoch_count = 0  # Track total epochs for plotting
+        
+        # Early stopping parameters
+        self.early_stopping_patience = self.config.get('early_stopping_patience', 50)
+        self.early_stopping_threshold = self.config.get('early_stopping_threshold', 0.0)
+        self.early_stopping_counter = 0
+        self.early_stopping_best_reward = float('-inf')
 
     def setup_logging(self, log_dir: str = "runs/ppo"):
         self.writer = SummaryWriter(log_dir)
@@ -97,6 +105,7 @@ class PPOTrainer:
                                            self.value_coef, self.entropy_coef, self.max_grad_norm)
             for k, v in loss_info.items():
                 total_loss_info.setdefault(k, []).append(v)
+            self.epoch_count += 1  # Track total epochs
 
             if loss_info.get('kl_div', 0) > self.target_kl:
                 break
@@ -119,7 +128,16 @@ class PPOTrainer:
         }
 
     def train(self, episodes: int = 1000, save_path: Optional[str] = None):
-        print(f"Starting PPO training for {episodes} episodes...")
+        total_epochs = episodes * self.num_epochs
+        print(f"Starting PPO training for {episodes} episodes ({total_epochs} total epochs)...")
+        
+        # Print learning rate schedule information
+        lr_info = self.agent.get_lr_schedule_info()
+        print(f"Learning rate schedule: {lr_info['schedule_type']}")
+        print(f"Initial learning rate: {lr_info['initial_lr']:.2e}")
+        print(f"Epochs per episode: {self.num_epochs}")
+        print(f"Expected total epochs: {total_epochs}")
+        
         if self.writer is None:
             self.setup_logging()
 
@@ -133,6 +151,27 @@ class PPOTrainer:
                 stats = self.episode_buffer.get_episode_stats()
                 for k, v in stats.items():
                     self.writer.add_scalar(f'Stats/{k}', v, self.episode_count)
+                
+                # Log learning rate and epoch information
+                self.writer.add_scalar('Training/LearningRate', loss_info['learning_rate'], self.episode_count)
+                self.writer.add_scalar('Training/TotalEpochs', self.epoch_count, self.episode_count)
+                self.writer.add_scalar('Training/EpochsPerEpisode', self.num_epochs, self.episode_count)
+
+            # Print rewards every print_interval episodes
+            if episode % self.print_interval == 0:
+                stats = self.episode_buffer.get_episode_stats()
+                recent_rewards = [ep['reward'] for ep in self.episode_buffer.get_recent_episodes(50)]
+                avg_reward = np.mean(recent_rewards) if recent_rewards else 0.0
+                current_lr = loss_info['learning_rate']
+                print(f"Episode {episode} (Epochs {episode * self.num_epochs}-{(episode + 1) * self.num_epochs - 1}): "
+                      f"Avg Reward (last 50): {avg_reward:.2f}, "
+                      f"Best Reward: {self.best_reward:.2f}, LR: {current_lr:.2e}")
+
+            # Save model every save_interval episodes
+            if save_path and episode % self.save_interval == 0:
+                checkpoint_path = save_path.replace('.pth', f'_episode_{episode}.pth')
+                self.agent.save(checkpoint_path)
+                print(f"Model saved at episode {episode}: {checkpoint_path}")
 
             if episode % self.eval_interval == 0:
                 eval_info = self.evaluate()
@@ -145,9 +184,19 @@ class PPOTrainer:
                     self.agent.save(save_path)
                     print(f"New best model saved! Reward: {self.best_reward:.2f}")
 
-            if save_path and episode % self.save_interval == 0:
-                checkpoint = save_path.replace('.pth', f'_episode_{episode}.pth')
-                self.agent.save(checkpoint)
+            # Early stopping check
+            if self.early_stopping_patience > 0:
+                current_reward = self.best_reward
+                if current_reward > self.early_stopping_best_reward + self.early_stopping_threshold:
+                    self.early_stopping_best_reward = current_reward
+                    self.early_stopping_counter = 0
+                else:
+                    self.early_stopping_counter += 1
+                
+                if self.early_stopping_counter >= self.early_stopping_patience:
+                    print(f"Early stopping triggered! No improvement for {self.early_stopping_patience} evaluations.")
+                    print(f"Best reward achieved: {self.early_stopping_best_reward:.2f}")
+                    break
 
         print("Training completed!")
         if self.writer:
@@ -161,25 +210,36 @@ class PPOTrainer:
 
         recent = self.episode_buffer.get_recent_episodes(100)
         rewards = [ep['reward'] for ep in recent]
-        episodes = list(range(len(rewards)))
+        
+        # Calculate epochs for each episode (each episode has num_epochs policy updates)
+        epochs_per_episode = self.num_epochs
+        total_epochs = len(rewards) * epochs_per_episode
+        epochs = list(range(0, total_epochs, epochs_per_episode))  # Epoch numbers: 0, 10, 20, 30, ...
 
         plt.figure(figsize=(12, 8))
         plt.subplot(2, 2, 1)
-        plt.plot(episodes, rewards)
-        plt.title('Training Reward')
+        plt.plot(epochs, rewards)
+        plt.title('Training Reward vs Epochs')
+        plt.xlabel('Epochs')
+        plt.ylabel('Reward')
         plt.grid(True)
 
         plt.subplot(2, 2, 2)
         window = min(20, len(rewards))
         if window > 0:
             moving_avg = np.convolve(rewards, np.ones(window)/window, mode='valid')
-            plt.plot(episodes[window-1:], moving_avg)
-            plt.title(f'Moving Avg (window={window})')
+            moving_avg_epochs = epochs[window-1:]  # Adjust epochs for moving average
+            plt.plot(moving_avg_epochs, moving_avg)
+            plt.title(f'Moving Avg (window={window}) vs Epochs')
+            plt.xlabel('Epochs')
+            plt.ylabel('Moving Average Reward')
             plt.grid(True)
 
         plt.subplot(2, 2, 3)
         plt.hist(rewards, bins=20, alpha=0.7)
         plt.title('Reward Distribution')
+        plt.xlabel('Reward')
+        plt.ylabel('Frequency')
         plt.grid(True)
 
         plt.subplot(2, 2, 4)
@@ -187,6 +247,8 @@ class PPOTrainer:
         values = [stats.get(k, 0) for k in keys]
         plt.bar(keys, values)
         plt.title('Statistics')
+        plt.xlabel('Metric')
+        plt.ylabel('Value')
         plt.xticks(rotation=45)
         plt.grid(True)
 
@@ -331,4 +393,13 @@ class PPOTrainer:
             'avg_length': avg_length,
             'episode_rewards': [total_reward / num_episodes] * num_episodes,
             'episode_lengths': episode_lengths
+        }
+
+    def get_epoch_info(self):
+        """Get information about epoch tracking."""
+        return {
+            'total_epochs': self.epoch_count,
+            'total_episodes': self.episode_count,
+            'epochs_per_episode': self.num_epochs,
+            'current_episode_epochs': self.epoch_count % self.num_epochs
         }

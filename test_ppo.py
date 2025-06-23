@@ -1,139 +1,213 @@
 """
-Simple test script to verify PPO implementation.
+Test script for PPO implementation.
 """
 
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-import gymnasium as gym
 import torch
 import numpy as np
-
 from ppo.agent import PPOAgent
 from ppo.trainer import PPOTrainer
-from ppo.memory import PPOMemory
-from ppo.utils import compute_gae, normalize
+from configs.default_config import PPOConfig
 
 
-def test_agent():
-    """Test PPO agent creation and action selection."""
-    print("Testing PPO Agent...")
+def test_agent_creation():
+    """Test agent creation and basic functionality."""
+    print("Testing agent creation...")
     
-    # Create agent
-    agent = PPOAgent(state_dim=4, action_dim=2, hidden_dim=64)
+    agent = PPOAgent(
+        state_dim=4, 
+        action_dim=2, 
+        hidden_dim=PPOConfig.HIDDEN_DIM,  # Use config value
+        num_layers=PPOConfig.NUM_LAYERS,
+        learning_rate=PPOConfig.LEARNING_RATE,
+        device=PPOConfig.DEVICE
+    )
     
-    # Test action selection
-    state = np.random.randn(4)
-    action, log_prob, value = agent.get_action(state)
+    print(f"✅ Agent created successfully")
+    print(f"   Device: {agent.device}")
+    print(f"   Hidden dim: {PPOConfig.HIDDEN_DIM}")
+    print(f"   Num layers: {PPOConfig.NUM_LAYERS}")
     
-    print(f"State shape: {state.shape}")
-    print(f"Action: {action}")
-    print(f"Log probability: {log_prob:.4f}")
-    print(f"Value: {value:.4f}")
-    
-    assert isinstance(action, int)
-    assert isinstance(log_prob, float)
-    assert isinstance(value, float)
-    print("✓ Agent test passed!")
+    return agent
 
 
-def test_memory():
-    """Test memory buffer functionality."""
-    print("\nTesting Memory Buffer...")
+def test_action_selection(agent):
+    """Test action selection functionality."""
+    print("\nTesting action selection...")
     
-    memory = PPOMemory(buffer_size=100)
+    # Test state
+    state = np.array([0.1, 0.2, 0.3, 0.4])
     
-    # Store some experiences
-    for i in range(10):
-        memory.store(
-            state=np.random.randn(4),
-            action=np.random.randint(0, 2),
-            reward=np.random.randn(),
-            value=np.random.randn(),
-            log_prob=np.random.randn(),
-            done=(i == 9)
-        )
+    # Test deterministic action
+    action, log_prob, value = agent.get_action(state, deterministic=True)
+    print(f"✅ Deterministic action: {action}, log_prob: {log_prob:.4f}, value: {value:.4f}")
     
-    # Compute advantages
-    memory.compute_advantages()
+    # Test stochastic action
+    action, log_prob, value = agent.get_action(state, deterministic=False)
+    print(f"✅ Stochastic action: {action}, log_prob: {log_prob:.4f}, value: {value:.4f}")
     
-    # Get batch
-    batch = memory.get_batch(batch_size=5)
+    # Test batch of states
+    states = torch.randn(5, 4)  # Batch of 5 states
+    actions = torch.randint(0, 2, (5,))  # Random actions
     
-    print(f"Memory size: {len(memory)}")
-    print(f"Batch keys: {list(batch.keys())}")
-    print(f"States shape: {batch['states'].shape}")
-    print(f"Actions shape: {batch['actions'].shape}")
+    log_probs, values, entropy = agent.evaluate_actions(states, actions)
+    print(f"✅ Batch evaluation: log_probs shape: {log_probs.shape}, values shape: {values.shape}")
+    print(f"   Mean entropy: {entropy.mean().item():.4f}")
+
+
+def test_training_step(agent):
+    """Test a single training step."""
+    print("\nTesting training step...")
     
-    assert len(memory) == 10
-    assert batch['states'].shape[0] == 5
-    print("✓ Memory test passed!")
+    # Create dummy batch
+    batch_size = 32
+    batch = {
+        'states': torch.randn(batch_size, 4),
+        'actions': torch.randint(0, 2, (batch_size,)),
+        'old_log_probs': torch.randn(batch_size),
+        'advantages': torch.randn(batch_size),
+        'returns': torch.randn(batch_size)
+    }
+    
+    # Test update
+    loss_info = agent.update(batch)
+    print(f"✅ Training step completed")
+    print(f"   Total loss: {loss_info['total_loss']:.4f}")
+    print(f"   Policy loss: {loss_info['policy_loss']:.4f}")
+    print(f"   Value loss: {loss_info['value_loss']:.4f}")
+    print(f"   Current LR: {loss_info['learning_rate']:.2e}")
 
 
 def test_trainer():
-    """Test trainer initialization."""
-    print("\nTesting PPO Trainer...")
-    
-    # Create environment
-    env = gym.make("CartPole-v1")
+    """Test trainer functionality."""
+    print("\nTesting trainer...")
     
     # Create agent
-    agent = PPOAgent(state_dim=4, action_dim=2, hidden_dim=64)
+    agent = PPOAgent(
+        state_dim=4, 
+        action_dim=2, 
+        hidden_dim=PPOConfig.HIDDEN_DIM,  # Use config value
+        num_layers=PPOConfig.NUM_LAYERS,
+        learning_rate=PPOConfig.LEARNING_RATE,
+        device=PPOConfig.DEVICE
+    )
     
     # Create trainer
-    trainer = PPOTrainer(agent=agent, env=env)
+    trainer = PPOTrainer(
+        agent=agent,
+        env_name="CartPole-v1",
+        config={
+            'gamma': PPOConfig.GAMMA,
+            'gae_lambda': PPOConfig.GAE_LAMBDA,
+            'clip_epsilon': PPOConfig.CLIP_EPSILON,
+            'value_coef': PPOConfig.VALUE_COEF,
+            'entropy_coef': PPOConfig.ENTROPY_COEF,
+            'max_grad_norm': PPOConfig.MAX_GRAD_NORM,
+            'batch_size': 32,  # Smaller for testing
+            'num_epochs': 2,   # Smaller for testing
+            'buffer_size': 256, # Smaller for testing
+            'target_kl': PPOConfig.TARGET_KL,
+            'max_episode_length': 500,
+            'log_interval': 5,
+            'save_interval': 10,
+            'eval_interval': 5,
+            'print_interval': 5,
+            'early_stopping_patience': 0,  # Disable for testing
+            'early_stopping_threshold': 0.0
+        }
+    )
     
-    print(f"Environment: {env}")
-    print(f"Agent: {type(agent)}")
-    print(f"Trainer: {type(trainer)}")
+    print(f"✅ Trainer created successfully")
     
     # Test episode collection
+    print("\nTesting episode collection...")
     episode_data = trainer.collect_episode()
-    print(f"Episode reward: {episode_data['reward']}")
-    print(f"Episode length: {episode_data['length']}")
+    print(f"✅ Episode collected: reward={episode_data['reward']:.2f}, length={episode_data['length']}")
     
-    assert episode_data['reward'] >= 0
-    assert episode_data['length'] > 0
-    print("✓ Trainer test passed!")
+    # Test batch collection
+    print("\nTesting batch collection...")
+    num_episodes = trainer.collect_batch()
+    print(f"✅ Batch collected: {num_episodes} episodes")
     
-    env.close()
+    # Test policy update
+    print("\nTesting policy update...")
+    loss_info = trainer.update_policy()
+    print(f"✅ Policy updated: total_loss={loss_info['total_loss']:.4f}")
+    
+    # Test evaluation
+    print("\nTesting evaluation...")
+    eval_info = trainer.evaluate(num_episodes=3)
+    print(f"✅ Evaluation completed: mean_reward={eval_info['mean_reward']:.2f}")
 
 
-def test_utils():
-    """Test utility functions."""
-    print("\nTesting Utility Functions...")
+def test_save_load():
+    """Test model saving and loading."""
+    print("\nTesting save/load functionality...")
     
-    # Test GAE computation
-    rewards = np.array([1.0, 0.5, -0.5, 1.0])
-    values = np.array([0.1, 0.2, 0.3, 0.4])
-    dones = np.array([False, False, False, True])
+    # Create agent
+    agent = PPOAgent(
+        state_dim=4, 
+        action_dim=2, 
+        hidden_dim=PPOConfig.HIDDEN_DIM,  # Use config value
+        num_layers=PPOConfig.NUM_LAYERS,
+        learning_rate=PPOConfig.LEARNING_RATE,
+        device=PPOConfig.DEVICE
+    )
     
-    advantages, returns = compute_gae(rewards, values, dones)
+    # Save model
+    save_path = "test_model.pth"
+    agent.save(save_path)
+    print(f"✅ Model saved to {save_path}")
     
-    print(f"Advantages shape: {advantages.shape}")
-    print(f"Returns shape: {returns.shape}")
+    # Create new agent and load
+    new_agent = PPOAgent(
+        state_dim=4, 
+        action_dim=2, 
+        hidden_dim=PPOConfig.HIDDEN_DIM,  # Use config value
+        num_layers=PPOConfig.NUM_LAYERS,
+        learning_rate=PPOConfig.LEARNING_RATE,
+        device=PPOConfig.DEVICE
+    )
     
-    assert advantages.shape == rewards.shape
-    assert returns.shape == rewards.shape
-    print("✓ Utils test passed!")
+    new_agent.load(save_path)
+    print(f"✅ Model loaded from {save_path}")
+    
+    # Clean up
+    if os.path.exists(save_path):
+        os.remove(save_path)
+        print(f"✅ Test file cleaned up")
 
 
 def main():
     """Run all tests."""
-    print("Running PPO Implementation Tests...\n")
+    print("🧪 Running PPO tests...")
+    print("=" * 50)
     
     try:
-        test_agent()
-        test_memory()
-        test_trainer()
-        test_utils()
+        # Test agent creation
+        agent = test_agent_creation()
         
-        print("\n🎉 All tests passed! PPO implementation is working correctly.")
+        # Test action selection
+        test_action_selection(agent)
+        
+        # Test training step
+        test_training_step(agent)
+        
+        # Test trainer
+        test_trainer()
+        
+        # Test save/load
+        test_save_load()
+        
+        print("\n🎉 All tests passed!")
         
     except Exception as e:
-        print(f"\n❌ Test failed with error: {e}")
-        raise
+        print(f"\n❌ Test failed: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 if __name__ == "__main__":

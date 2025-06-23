@@ -10,6 +10,7 @@ import gymnasium as gym
 import torch
 from ppo.agent import PPOAgent
 from ppo.trainer import PPOTrainer
+from configs.default_config import PPOConfig
 
 
 def quick_start():
@@ -37,9 +38,10 @@ def quick_start():
     agent = PPOAgent(
         state_dim=state_dim,
         action_dim=action_dim,
-        hidden_dim=64,
-        learning_rate=3e-4,
-        device=device
+        hidden_dim=PPOConfig.HIDDEN_DIM,
+        num_layers=PPOConfig.NUM_LAYERS,
+        learning_rate=PPOConfig.LEARNING_RATE,
+        device=PPOConfig.DEVICE
     )
     
     # Create trainer
@@ -62,7 +64,7 @@ def quick_start():
     print("\n🎯 Starting training...")
     
     # Train for a short time
-    trainer.train(episodes=100, save_path="models/quick_start_best.pth")
+    trainer.train(episodes=500, save_path="models/quick_start_best.pth")
     
     # Evaluate the trained agent
     print("\n📊 Evaluating trained agent...")

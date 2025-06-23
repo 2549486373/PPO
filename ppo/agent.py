@@ -7,7 +7,8 @@ import torch.nn
 import torch.nn.functional as F
 import numpy as np
 import os
-from typing import Tuple, Dict, Any
+import math
+from typing import Tuple, Dict, Any, Optional
 
 
 class ActorCritic(torch.nn.Module):
@@ -126,11 +127,12 @@ class ActorCritic(torch.nn.Module):
 
 class PPOAgent:
     """
-    PPO Agent with actor-critic architecture.
+    PPO Agent with actor-critic architecture and configurable learning rate annealing.
     """
     
     def __init__(self, state_dim, action_dim, hidden_dim=64, num_layers=2, 
-                 learning_rate=3e-4, device="cpu"):
+                 learning_rate=3e-4, device="cpu", lr_schedule="cosine", 
+                 lr_schedule_kwargs=None):
         """
         Initialize PPO Agent.
         
@@ -139,12 +141,16 @@ class PPOAgent:
             action_dim: Dimension of action space
             hidden_dim: Number of hidden units
             num_layers: Number of hidden layers
-            learning_rate: Learning rate for optimization
+            learning_rate: Initial learning rate for optimization
             device: Device to run on ("cpu" or "cuda")
+            lr_schedule: Learning rate schedule type ("linear", "cosine", "exponential", "step", "none")
+            lr_schedule_kwargs: Additional arguments for the scheduler
         """
         self.state_dim = state_dim
         self.action_dim = action_dim
         self.device = device
+        self.initial_lr = learning_rate
+        self.lr_schedule = lr_schedule
         
         # Create actor-critic network
         self.actor_critic = ActorCritic(
@@ -162,12 +168,77 @@ class PPOAgent:
         )
         
         # Learning rate scheduler
-        self.scheduler = torch.optim.lr_scheduler.LinearLR(
-            self.optimizer,
-            start_factor=1.0,
-            end_factor=0.0,
-            total_iters=1000
-        )
+        self.scheduler = self._create_scheduler(lr_schedule, lr_schedule_kwargs or {})
+    
+    def _create_scheduler(self, schedule_type, kwargs):
+        """Create learning rate scheduler based on type."""
+        if schedule_type == "none":
+            return None
+        elif schedule_type == "linear":
+            total_iters = kwargs.get('total_iters', 1000)
+            end_factor = kwargs.get('end_factor', 0.0)
+            return torch.optim.lr_scheduler.LinearLR(
+                self.optimizer,
+                start_factor=1.0,
+                end_factor=end_factor,
+                total_iters=total_iters
+            )
+        elif schedule_type == "cosine":
+            total_iters = kwargs.get('total_iters', 1000)
+            eta_min = kwargs.get('eta_min', 0.0)
+            return torch.optim.lr_scheduler.CosineAnnealingLR(
+                self.optimizer,
+                T_max=total_iters,
+                eta_min=eta_min
+            )
+        elif schedule_type == "exponential":
+            gamma = kwargs.get('gamma', 0.99)
+            return torch.optim.lr_scheduler.ExponentialLR(
+                self.optimizer,
+                gamma=gamma
+            )
+        elif schedule_type == "step":
+            step_size = kwargs.get('step_size', 100)
+            gamma = kwargs.get('gamma', 0.1)
+            return torch.optim.lr_scheduler.StepLR(
+                self.optimizer,
+                step_size=step_size,
+                gamma=gamma
+            )
+        elif schedule_type == "cosine_warm_restart":
+            T_0 = kwargs.get('T_0', 100)
+            T_mult = kwargs.get('T_mult', 2)
+            eta_min = kwargs.get('eta_min', 0.0)
+            return torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+                self.optimizer,
+                T_0=T_0,
+                T_mult=T_mult,
+                eta_min=eta_min
+            )
+        else:
+            raise ValueError(f"Unsupported learning rate schedule: {schedule_type}")
+    
+    def get_current_lr(self):
+        """Get current learning rate."""
+        if self.scheduler is None:
+            return self.optimizer.param_groups[0]['lr']
+        return self.optimizer.param_groups[0]['lr']
+    
+    def get_lr_schedule_info(self):
+        """Get information about the learning rate schedule."""
+        info = {
+            'schedule_type': self.lr_schedule,
+            'initial_lr': self.initial_lr,
+            'current_lr': self.get_current_lr()
+        }
+        
+        if self.scheduler is not None:
+            if hasattr(self.scheduler, 'last_epoch'):
+                info['last_epoch'] = self.scheduler.last_epoch
+            if hasattr(self.scheduler, 'base_lrs'):
+                info['base_lrs'] = self.scheduler.base_lrs
+        
+        return info
     
     def get_action(self, state, deterministic=False):
         """
@@ -259,7 +330,8 @@ class PPOAgent:
         self.optimizer.step()
         
         # Update learning rate
-        self.scheduler.step()
+        if self.scheduler is not None:
+            self.scheduler.step()
         
         # Compute additional metrics
         with torch.no_grad():
@@ -272,7 +344,8 @@ class PPOAgent:
             'value_loss': value_loss.item(),
             'entropy_loss': entropy_loss.item(),
             'kl_div': kl_div,
-            'clip_fraction': clip_fraction
+            'clip_fraction': clip_fraction,
+            'learning_rate': self.get_current_lr()
         }
         
         return loss_info
@@ -286,10 +359,12 @@ class PPOAgent:
         checkpoint = {
             'actor_critic_state_dict': self.actor_critic.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
-            'scheduler_state_dict': self.scheduler.state_dict(),
+            'scheduler_state_dict': self.scheduler.state_dict() if self.scheduler else None,
             'state_dim': self.state_dim,
             'action_dim': self.action_dim,
-            'device': self.device
+            'device': self.device,
+            'lr_schedule': self.lr_schedule,
+            'initial_lr': self.initial_lr
         }
         
         torch.save(checkpoint, path, _use_new_zipfile_serialization=True)
@@ -304,6 +379,50 @@ class PPOAgent:
             print(f"Note: Loading with weights_only=False due to compatibility: {e}")
             checkpoint = torch.load(path, map_location=self.device, weights_only=False)
         
-        self.actor_critic.load_state_dict(checkpoint['actor_critic_state_dict'])
+        # Check if network architecture matches
+        saved_state_dict = checkpoint['actor_critic_state_dict']
+        current_state_dict = self.actor_critic.state_dict()
+        
+        # Check for architecture mismatch
+        architecture_mismatch = False
+        mismatch_info = []
+        
+        for key in saved_state_dict.keys():
+            if key in current_state_dict:
+                if saved_state_dict[key].shape != current_state_dict[key].shape:
+                    architecture_mismatch = True
+                    mismatch_info.append(f"{key}: {saved_state_dict[key].shape} -> {current_state_dict[key].shape}")
+        
+        if architecture_mismatch:
+            print("❌ Architecture mismatch detected!")
+            print("Saved model has different network dimensions:")
+            for info in mismatch_info:
+                print(f"   {info}")
+            print("\nTo fix this, either:")
+            print("1. Use the same network architecture (hidden_dim, num_layers) as the saved model")
+            print("2. Retrain the model with the current architecture")
+            print("3. Create a new agent with matching architecture before loading")
+            raise ValueError("Network architecture mismatch")
+        
+        # Load the model weights
+        self.actor_critic.load_state_dict(saved_state_dict)
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        self.scheduler.load_state_dict(checkpoint['scheduler_state_dict']) 
+        
+        # Load scheduler if it exists and matches
+        if checkpoint.get('scheduler_state_dict') is not None and self.scheduler is not None:
+            try:
+                self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+            except Exception as e:
+                print(f"Warning: Could not load scheduler state: {e}")
+                print("Scheduler will continue from current state")
+        
+        # Update agent attributes if available
+        if 'lr_schedule' in checkpoint:
+            self.lr_schedule = checkpoint['lr_schedule']
+        if 'initial_lr' in checkpoint:
+            self.initial_lr = checkpoint['initial_lr']
+        
+        print(f"✅ Model loaded successfully from {path}")
+        print(f"   Schedule: {self.lr_schedule}")
+        print(f"   Initial LR: {self.initial_lr:.2e}")
+        print(f"   Current LR: {self.get_current_lr():.2e}") 

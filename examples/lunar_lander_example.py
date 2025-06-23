@@ -26,14 +26,16 @@ def main():
     if device == "cuda":
         print(f"GPU: {torch.cuda.get_device_name()}")
     
-    # Create agent
+    # Create agent with learning rate scheduling
     agent = PPOAgent(
         state_dim=state_dim,
         action_dim=action_dim,
         hidden_dim=PPOConfig.HIDDEN_DIM,
         num_layers=PPOConfig.NUM_LAYERS,
         learning_rate=PPOConfig.LEARNING_RATE,
-        device=device
+        device=device,
+        lr_schedule=PPOConfig.LR_SCHEDULE,
+        lr_schedule_kwargs=PPOConfig.LR_SCHEDULE_KWARGS
     )
     
     # Create trainer
@@ -54,7 +56,10 @@ def main():
             'max_episode_length': PPOConfig.MAX_EPISODE_LENGTH,
             'log_interval': PPOConfig.LOG_INTERVAL,
             'save_interval': PPOConfig.SAVE_INTERVAL,
-            'eval_interval': PPOConfig.EVAL_INTERVAL
+            'eval_interval': PPOConfig.EVAL_INTERVAL,
+            'print_interval': PPOConfig.PRINT_INTERVAL,
+            'early_stopping_patience': PPOConfig.EARLY_STOPPING_PATIENCE,
+            'early_stopping_threshold': PPOConfig.EARLY_STOPPING_THRESHOLD
         }
     )
     
@@ -63,7 +68,7 @@ def main():
     
     # Train the agent
     print("Starting PPO training on LunarLander-v2...")
-    trainer.train(episodes=1000, save_path="models/lunar_lander_best.pth")
+    trainer.train(episodes=500, save_path="models/lunar_lander_best.pth")
     
     # Plot training curves
     trainer.plot_training_curves("plots/lunar_lander_training.png")
