@@ -7,6 +7,7 @@ import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 import gymnasium as gym
+import torch
 from ppo.agent import PPOAgent
 from ppo.trainer import PPOTrainer
 
@@ -16,6 +17,12 @@ def quick_start():
     
     print("🚀 PPO Quick Start Example")
     print("=" * 40)
+    
+    # Auto-detect device
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Using device: {device}")
+    if device == "cuda":
+        print(f"GPU: {torch.cuda.get_device_name()}")
     
     # Create environment
     env = gym.make("CartPole-v1")
@@ -31,7 +38,8 @@ def quick_start():
         state_dim=state_dim,
         action_dim=action_dim,
         hidden_dim=64,
-        learning_rate=3e-4
+        learning_rate=3e-4,
+        device=device
     )
     
     # Create trainer
@@ -52,7 +60,6 @@ def quick_start():
     trainer.setup_logging("runs/quick_start")
     
     print("\n🎯 Starting training...")
-    print("This will train for 100 episodes (about 1-2 minutes)")
     
     # Train for a short time
     trainer.train(episodes=100, save_path="models/quick_start_best.pth")
@@ -68,9 +75,14 @@ def quick_start():
     # Plot training curves
     trainer.plot_training_curves("plots/quick_start_training.png")
     
+    # Visualize the trained agent
+    print("\n🎬 Visualizing trained agent...")
+    viz_results = trainer.visualize_agent(num_episodes=3, render=True)
+    
     print("\n✅ Training completed!")
     print("Check the 'runs/quick_start' folder for TensorBoard logs")
     print("Check the 'plots/quick_start_training.png' for training curves")
+    print("You just watched the trained agent balance the pole!")
     
     env.close()
 

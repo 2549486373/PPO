@@ -6,6 +6,7 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import torch
 from ppo.agent import PPOAgent
 from ppo.trainer import PPOTrainer
 from configs.default_config import PPOConfig
@@ -19,6 +20,12 @@ def main():
     state_dim = 4
     action_dim = 2
     
+    # Show device information
+    device = PPOConfig.DEVICE
+    print(f"Using device: {device}")
+    if device == "cuda":
+        print(f"GPU: {torch.cuda.get_device_name()}")
+    
     # Create agent
     agent = PPOAgent(
         state_dim=state_dim,
@@ -26,7 +33,7 @@ def main():
         hidden_dim=PPOConfig.HIDDEN_DIM,
         num_layers=PPOConfig.NUM_LAYERS,
         learning_rate=PPOConfig.LEARNING_RATE,
-        device=PPOConfig.DEVICE
+        device=device
     )
     
     # Create trainer

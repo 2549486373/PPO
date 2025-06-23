@@ -3,9 +3,10 @@ PPO Agent implementation with actor-critic networks.
 """
 
 import torch
-import torch.nn as torch.nn
+import torch.nn
 import torch.nn.functional as F
 import numpy as np
+import os
 from typing import Tuple, Dict, Any
 
 
@@ -105,6 +106,9 @@ class ActorCritic(torch.nn.Module):
         if isinstance(state, np.ndarray):
             state = torch.FloatTensor(state).unsqueeze(0)
         
+        # Move state to the same device as the model
+        state = state.to(next(self.parameters()).device)
+        
         action_probs, value = self.forward(state)
         
         if deterministic:
@@ -193,6 +197,10 @@ class PPOAgent:
             values: State values [batch_size, 1]
             entropy: Entropy of policy [batch_size]
         """
+        # Ensure states and actions are on the correct device
+        states = states.to(self.device)
+        actions = actions.to(self.device)
+        
         action_probs, values = self.actor_critic(states)
         
         # Get log probabilities for the taken actions
@@ -271,17 +279,31 @@ class PPOAgent:
     
     def save(self, path):
         """Save the agent to a file."""
-        torch.save({
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        
+        # Save only the essential data for compatibility
+        checkpoint = {
             'actor_critic_state_dict': self.actor_critic.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'scheduler_state_dict': self.scheduler.state_dict(),
             'state_dim': self.state_dim,
-            'action_dim': self.action_dim
-        }, path)
+            'action_dim': self.action_dim,
+            'device': self.device
+        }
+        
+        torch.save(checkpoint, path, _use_new_zipfile_serialization=True)
     
     def load(self, path):
         """Load the agent from a file."""
-        checkpoint = torch.load(path, map_location=self.device)
+        try:
+            # Try loading with weights_only=True first (PyTorch 2.6+ default)
+            checkpoint = torch.load(path, map_location=self.device, weights_only=True)
+        except Exception as e:
+            # If that fails, try with weights_only=False (PyTorch <2.6 behavior)
+            print(f"Note: Loading with weights_only=False due to compatibility: {e}")
+            checkpoint = torch.load(path, map_location=self.device, weights_only=False)
+        
         self.actor_critic.load_state_dict(checkpoint['actor_critic_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         self.scheduler.load_state_dict(checkpoint['scheduler_state_dict']) 

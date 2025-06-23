@@ -2,6 +2,8 @@
 Default configuration for PPO training.
 """
 
+import torch
+
 class PPOConfig:
     """Default hyperparameters for PPO algorithm."""
     
@@ -34,5 +36,5 @@ class PPOConfig:
     SAVE_INTERVAL = 100
     EVAL_INTERVAL = 50
     
-    # Device
-    DEVICE = "cpu"  # Change to "cuda" if GPU available 
+    # Device - auto-detect GPU if available
+    DEVICE = "cuda" if torch.cuda.is_available() else "cpu" 

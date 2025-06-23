@@ -160,7 +160,7 @@ class EpisodeBuffer:
         if not self.episodes:
             return {}
         
-        rewards = [ep['total_reward'] for ep in self.episodes]
+        rewards = [ep['reward'] for ep in self.episodes]
         lengths = [ep['length'] for ep in self.episodes]
         
         return {

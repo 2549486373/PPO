@@ -12,6 +12,16 @@ A PyTorch implementation of the Proximal Policy Optimization (PPO) algorithm for
 
 ## Installation
 
+### Option 1: Using Conda (Recommended)
+
+```bash
+# Create and activate conda environment
+conda env create -f environment.yml
+conda activate ppo
+```
+
+### Option 2: Using pip
+
 ```bash
 pip install -r requirements.txt
 ```
@@ -62,7 +72,8 @@ PPO/
 ├── examples/
 │   ├── cartpole_example.py
 │   └── lunar_lander_example.py
-├── requirements.txt
+├── environment.yml       # Conda environment file
+├── requirements.txt      # pip requirements (alternative)
 └── README.md
 ```
 
