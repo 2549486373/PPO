@@ -77,7 +77,7 @@ def test_new_features():
     print(f"   - Early stopping disabled")
     
     # Train the agent
-    trainer.train(episodes=300, save_path="models/test_cartpole.pth")
+    trainer.train(episodes=500, save_path="models/test_cartpole.pth")
     
     # Plot training curves
     trainer.plot_training_curves("plots/test_training.png")

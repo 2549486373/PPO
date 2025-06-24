@@ -1,5 +1,5 @@
 """
-Example: Training PPO on LunarLander-v2 environment.
+Example: Training PPO on Isaac Sim CartPole environment.
 """
 
 import sys
@@ -7,24 +7,45 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import torch
+import numpy as np
 from ppo.agent import PPOAgent
 from ppo.trainer import PPOTrainer
+from ppo.isaac_env import create_isaac_env, ISAAC_AVAILABLE
 from configs.default_config import PPOConfig
 
 
 def main():
-    """Main training function for LunarLander."""
+    """Main training function for Isaac Sim CartPole."""
+    
+    if not ISAAC_AVAILABLE:
+        print("Isaac Sim is not available. Please install omni-isaac-gym first.")
+        print("You can install it using: pip install omni-isaac-gym")
+        return
     
     # Environment parameters
-    env_name = "LunarLander-v2"
-    state_dim = 8
-    action_dim = 4
+    env_name = "cartpole"
+    num_envs = 4  # Number of parallel environments
+    state_dim = 4
+    action_dim = 2  # Discrete actions for CartPole
     
     # Show device information
     device = PPOConfig.DEVICE
     print(f"Using device: {device}")
     if device == "cuda":
         print(f"GPU: {torch.cuda.get_device_name()}")
+    
+    # Create Isaac Sim environment
+    print("Creating Isaac Sim CartPole environment...")
+    env = create_isaac_env(
+        env_name=env_name,
+        num_envs=num_envs,
+        device=device,
+        headless=True  # Set to False for visualization
+    )
+    
+    print(f"Environment created successfully!")
+    print(f"Observation space: {env.observation_space}")
+    print(f"Action space: {env.action_space}")
     
     # Create agent with learning rate scheduling
     agent = PPOAgent(
@@ -37,10 +58,10 @@ def main():
         lr_schedule=PPOConfig.LR_SCHEDULE
     )
     
-    # Create trainer
+    # Create trainer with Isaac Sim environment
     trainer = PPOTrainer(
         agent=agent,
-        env_name=env_name,
+        env=env,  # Pass the Isaac Sim environment directly
         config={
             'gamma': PPOConfig.GAMMA,
             'gae_lambda': PPOConfig.GAE_LAMBDA,
@@ -63,20 +84,23 @@ def main():
     )
     
     # Setup logging
-    trainer.setup_logging("runs/ppo_lunar_lander")
+    trainer.setup_logging("runs/ppo_isaac_cartpole")
     
     # Train the agent
-    print("Starting PPO training on LunarLander-v2...")
-    trainer.train(episodes=500, save_path="models/lunar_lander_best.pth")
+    print("Starting PPO training on Isaac Sim CartPole...")
+    trainer.train(episodes=500, save_path="models/isaac_cartpole_best.pth")
     
     # Plot training curves
-    trainer.plot_training_curves("plots/lunar_lander_training.png")
+    trainer.plot_training_curves("plots/isaac_cartpole_training.png")
     
     # Final evaluation
     print("\nFinal evaluation:")
     eval_info = trainer.evaluate(num_episodes=20)
     for key, value in eval_info.items():
         print(f"{key}: {value:.2f}")
+    
+    # Close environment
+    env.close()
 
 
 if __name__ == "__main__":

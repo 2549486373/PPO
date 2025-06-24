@@ -128,6 +128,16 @@ class PPOTrainer:
         }
 
     def train(self, episodes: int = 1000, save_path: Optional[str] = None):
+        # Update learning rate schedule parameters based on number of episodes
+        from configs.default_config import PPOConfig
+        lr_schedule_kwargs = PPOConfig.get_lr_schedule_kwargs(episodes)
+        
+        # Recreate the agent's scheduler with updated parameters
+        self.agent.scheduler = self.agent._create_scheduler(
+            self.agent.lr_schedule, 
+            lr_schedule_kwargs
+        )
+        
         total_epochs = episodes * self.num_epochs
         print(f"Starting PPO training for {episodes} episodes ({total_epochs} total epochs)...")
         
@@ -137,6 +147,7 @@ class PPOTrainer:
         print(f"Initial learning rate: {lr_info['initial_lr']:.2e}")
         print(f"Epochs per episode: {self.num_epochs}")
         print(f"Expected total epochs: {total_epochs}")
+        print(f"LR schedule parameters: {lr_schedule_kwargs}")
         
         if self.writer is None:
             self.setup_logging()

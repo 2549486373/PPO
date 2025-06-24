@@ -41,6 +41,7 @@ def quick_start():
         hidden_dim=PPOConfig.HIDDEN_DIM,
         num_layers=PPOConfig.NUM_LAYERS,
         learning_rate=PPOConfig.LEARNING_RATE,
+        lr_schedule=PPOConfig.LR_SCHEDULE,
         device=PPOConfig.DEVICE
     )
     
@@ -49,12 +50,23 @@ def quick_start():
         agent=agent,
         env=env,
         config={
-            'gamma': 0.99,
-            'gae_lambda': 0.95,
-            'clip_epsilon': 0.2,
-            'batch_size': 64,
-            'num_epochs': 10,
-            'buffer_size': 2048
+            'gamma': PPOConfig.GAMMA,
+            'gae_lambda': PPOConfig.GAE_LAMBDA,
+            'clip_epsilon': PPOConfig.CLIP_EPSILON,
+            'value_coef': PPOConfig.VALUE_COEF,
+            'entropy_coef': PPOConfig.ENTROPY_COEF,
+            'max_grad_norm': PPOConfig.MAX_GRAD_NORM,
+            'batch_size': PPOConfig.BATCH_SIZE,
+            'num_epochs': PPOConfig.NUM_EPOCHS,
+            'buffer_size': PPOConfig.BUFFER_SIZE,
+            'target_kl': PPOConfig.TARGET_KL,
+            'max_episode_length': PPOConfig.MAX_EPISODE_LENGTH,
+            'log_interval': PPOConfig.LOG_INTERVAL,
+            'save_interval': PPOConfig.SAVE_INTERVAL,
+            'eval_interval': PPOConfig.EVAL_INTERVAL,
+            'print_interval': PPOConfig.PRINT_INTERVAL,
+            'early_stopping_patience': PPOConfig.EARLY_STOPPING_PATIENCE,
+            'early_stopping_threshold': PPOConfig.EARLY_STOPPING_THRESHOLD
         }
     )
     

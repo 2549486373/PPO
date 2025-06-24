@@ -4,6 +4,36 @@ Default configuration for PPO training.
 
 import torch
 
+def get_lr_schedule_kwargs(num_episodes):
+    """
+    Get learning rate schedule parameters based on number of episodes.
+    
+    Args:
+        num_episodes: Number of episodes for training
+        
+    Returns:
+        Dictionary of learning rate schedule parameters
+    """
+    return {
+        # Linear schedule parameters
+        'total_iters': num_episodes,  # Total episodes for linear decay
+        'end_factor': 0.0,    # Final learning rate factor (0.0 = decay to 0)
+        
+        # Cosine schedule parameters
+        'eta_min': 1e-6,      # Minimum learning rate for cosine annealing
+        
+        # Exponential schedule parameters
+        'gamma': 0.99,        # Decay factor for exponential decay
+        
+        # Step schedule parameters
+        'step_size': max(1, num_episodes // 5),  # Step size for step decay (every 20% of episodes)
+        'gamma': 0.1,         # Decay factor for step decay
+        
+        # Cosine warm restart parameters
+        'T_0': max(1, num_episodes // 5),  # Initial restart period (every 20% of episodes)
+        'T_mult': 2,          # Period multiplier after each restart
+    }
+
 class PPOConfig:
     """Default hyperparameters for PPO algorithm."""
     
@@ -43,25 +73,24 @@ class PPOConfig:
     
     # Learning rate scheduling parameters
     LR_SCHEDULE = "cosine"  # Options: "linear", "cosine", "exponential", "step", "cosine_warm_restart", "none"
-    LR_SCHEDULE_KWARGS = {
-        # Linear schedule parameters
-        'total_iters': 5000,  # Total iterations for linear decay (500 episodes * 10 epochs)
-        'end_factor': 0.0,    # Final learning rate factor (0.0 = decay to 0)
+    
+    # Default number of episodes for calculating LR schedule parameters
+    DEFAULT_EPISODES = 500
+    
+    @classmethod
+    def get_lr_schedule_kwargs(cls, num_episodes=None):
+        """
+        Get learning rate schedule parameters.
         
-        # Cosine schedule parameters
-        'eta_min': 1e-6,      # Minimum learning rate for cosine annealing
-        
-        # Exponential schedule parameters
-        'gamma': 0.99,        # Decay factor for exponential decay
-        
-        # Step schedule parameters
-        'step_size': 500,     # Step size for step decay (50 episodes * 10 epochs)
-        'gamma': 0.1,         # Decay factor for step decay
-        
-        # Cosine warm restart parameters
-        'T_0': 500,           # Initial restart period (50 episodes * 10 epochs)
-        'T_mult': 2,          # Period multiplier after each restart
-    }
+        Args:
+            num_episodes: Number of episodes for training. If None, uses DEFAULT_EPISODES.
+            
+        Returns:
+            Dictionary of learning rate schedule parameters
+        """
+        if num_episodes is None:
+            num_episodes = cls.DEFAULT_EPISODES
+        return get_lr_schedule_kwargs(num_episodes)
     
     # Device - auto-detect GPU if available
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu" 

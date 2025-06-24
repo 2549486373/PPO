@@ -34,8 +34,7 @@ def main():
         num_layers=PPOConfig.NUM_LAYERS,
         learning_rate=PPOConfig.LEARNING_RATE,
         device=device,
-        lr_schedule=PPOConfig.LR_SCHEDULE,
-        lr_schedule_kwargs=PPOConfig.LR_SCHEDULE_KWARGS
+        lr_schedule=PPOConfig.LR_SCHEDULE
     )
     
     # Create trainer
